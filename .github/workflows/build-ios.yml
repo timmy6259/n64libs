@@ -1,0 +1,63 @@
+name: iOS ARM64 N64 toolchain (bootstrap)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'build-ios.sh'
+      - '*.patch'
+      - '.github/workflows/build-ios.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 360
+    env:
+      IOS_MIN_VERSION: '16.0'
+      ABI: '32'
+      TARGET: mips-elf
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install packaging tools
+        run: brew install dpkg
+      - name: Fetch Theos iPhoneOS SDK
+        shell: bash
+        run: |
+          git clone --depth 1 https://github.com/theos/sdks.git "$RUNNER_TEMP/theos-sdks"
+          SDKROOT="$(find "$RUNNER_TEMP/theos-sdks" -maxdepth 1 -type d -name 'iPhoneOS16*.sdk' | sort -V | tail -n 1)"
+          if [[ -z "$SDKROOT" ]]; then
+            echo 'No iPhoneOS 16 SDK found in the Theos SDK repository' >&2
+            exit 1
+          fi
+          echo "SDKROOT=$SDKROOT" >> "$GITHUB_ENV"
+          echo "Using SDK: $SDKROOT"
+      - name: Build ARM64 iOS-hosted MIPS toolchain
+        run: bash ./build-ios.sh
+      - name: Package rootless Debian artifact
+        shell: bash
+        run: |
+          PKG="$RUNNER_TEMP/n64-toolchain-deb"
+          mkdir -p "$PKG/DEBIAN"
+          cp -R stage/var "$PKG/"
+          cat > "$PKG/DEBIAN/control" <<'CONTROL'
+          Package: com.timmy6259.n64toolchain
+          Name: N64 MIPS toolchain (iOS ARM64 bootstrap)
+          Version: 0.1.0-${GITHUB_RUN_NUMBER}
+          Architecture: iphoneos-arm64
+          Description: ARM64 iOS-hosted GNU tools targeting Nintendo 64 MIPS ELF
+          Maintainer: timmy6259
+          Section: Development
+          Priority: optional
+          CONTROL
+          # Expand the workflow run number in the Debian control field.
+          sed -i '' "s/0.1.0-\${GITHUB_RUN_NUMBER}/0.1.0-${GITHUB_RUN_NUMBER}/" "$PKG/DEBIAN/control"
+          dpkg-deb --build --root-owner-group "$PKG" "$RUNNER_TEMP/n64toolchain-ios-arm64.deb"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: n64toolchain-ios-arm64-rootless
+          path: ${{ runner.temp }}/n64toolchain-ios-arm64.deb
+          if-no-files-found: error
