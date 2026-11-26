@@ -9,6 +9,13 @@ on:
       - '*.patch'
       - '.github/workflows/build-ios.yml'
 
+# Keep long-running builds alive when another dispatch or push arrives.
+# GitHub concurrency groups with cancel-in-progress enabled can terminate a
+# running build when a newer run enters the same group.
+concurrency:
+  group: n64libs-ios-toolchain-${{ github.workflow }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
